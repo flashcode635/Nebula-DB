@@ -3,10 +3,10 @@ from main import DataBase  # Import your class from the other file
 
 TEST_DB = "test_db.json"
 
+"""remove the testing db if exist earlier"""
 def clean_db():
     if os.path.exists(TEST_DB):
         os.remove(TEST_DB)
-
 def run_tests():
     clean_db() # Start fresh
     db = DataBase(TEST_DB)
