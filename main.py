@@ -188,5 +188,3 @@ if __name__ == "__main__":
         print(method(coll, args[3]))
     else:
         print("Invalid Argument Configuration matrix structural limit reached.")
-
-# 29
