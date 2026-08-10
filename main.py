@@ -1,104 +1,107 @@
-import sys  # Only for CLI arguments processing via sys.argv
+import sys
+import json
 from pathlib import Path
+from typing import Dict, Any, List, Optional
+
+class FieldType:
+    """Supported data types in application"""
+    STRING = 'string'
+    NUMBER = 'number'
+    BOOLEAN = 'boolean'
+    INTEGER = 'integer'
+    FLOAT = 'float'
+    ARRAY = 'array'
+    OBJECT = 'object'
+    NULL = 'null'
+
+class Schema:
+    def __init__(self, fields: Dict[str, str]):
+        """Define schema for a collection"""
+        self.fields = fields
+        
+    def validate(self, data: Dict[str, Any]) -> bool:
+        """Validate if data matches the schema"""
+        # Check all required fields exist
+        for field, field_type in self.fields.items():
+            if field not in data:
+                raise ValueError(f"Missing required field: {field}")
+            
+            value = data[field]
+            
+            # Type validation
+            if field_type == FieldType.STRING:
+                if not isinstance(value, str):
+                    raise TypeError(f"Field '{field}' must be string, got {type(value).__name__}")
+            elif field_type == FieldType.INTEGER:
+                if not isinstance(value, int) or isinstance(value, bool):
+                    raise TypeError(f"Field '{field}' must be integer, got {type(value).__name__}")
+            elif field_type == FieldType.FLOAT:
+                if not isinstance(value, (int, float)) or isinstance(value, bool):
+                    raise TypeError(f"Field '{field}' must be float, got {type(value).__name__}")
+            elif field_type == FieldType.NUMBER:
+                if not isinstance(value, (int, float)) or isinstance(value, bool):
+                    raise TypeError(f"Field '{field}' must be number, got {type(value).__name__}")
+            elif field_type == FieldType.BOOLEAN:
+                if not isinstance(value, bool):
+                    raise TypeError(f"Field '{field}' must be boolean, got {type(value).__name__}")
+            elif field_type == FieldType.ARRAY:
+                if not isinstance(value, list):
+                    raise TypeError(f"Field '{field}' must be array, got {type(value).__name__}")
+            elif field_type == FieldType.OBJECT:
+                if not isinstance(value, dict):
+                    raise TypeError(f"Field '{field}' must be object, got {type(value).__name__}")
+            elif field_type == FieldType.NULL:
+                if value is not None:
+                    raise TypeError(f"Field '{field}' must be null, got {type(value).__name__}")
+        
+        # Check for extra fields
+        for field in data.keys():
+            if field not in self.fields:
+                raise ValueError(f"Unknown field: {field}")
+                
+        return True
 
 class NeBulaDB:
     def __init__(self, db_name, max_cache=3):
         self.max_cache = max_cache
-        # Ensure `db/` directory exists and set db file path inside it
         self.db_dir = Path("db")
         self.db_dir.mkdir(parents=True, exist_ok=True)
         self.db_path = self.db_dir / f"{db_name}.json"
-        # Two-tier storage layout: Original structure + Read Copy (LRU Cache)
-        self.collections = {}  # Original write-through target
-        self.read_cache = {}   # Read Copy: { (coll, doc_id): doc_data }
+        self.collections = {}  
+        self.schemas = {}  # Store schema definitions
+        self.read_cache = {}   
         self._load_from_disk()
 
     def _load_from_disk(self):
         try:
             with open(self.db_path, "r") as f:
                 content = f.read().strip()
-                if content: self.collections = self._parse_json(content)
-        except FileNotFoundError:
+                if content:
+                    data = json.loads(content)
+                    self.collections = data.get("collections", {})
+                    schema_defs = data.get("schemas", {})
+                    self.schemas = {name: Schema(fields) for name, fields in schema_defs.items()}
+        except (FileNotFoundError, json.JSONDecodeError):
             self.collections = {}
+            self.schemas = {}
 
     def _flush(self):
-        # Writes directly to the original file target
+        data = {
+            "collections": self.collections,
+            "schemas": {name: schema.fields for name, schema in self.schemas.items()}
+        }
         with open(self.db_path, "w") as f:
-            f.write(self._serialize_json(self.collections))
+            json.dump(data, f, indent=4)
 
-    def _parse_json(self, s):
-        # Minimalistic custom parser for string dictionary format
-        s = s.strip()[1:-1].strip()
-        if not s: return {}
-        res, i = {}, 0
-        while i < len(s):
-            if s[i] == '"':
-                start = i + 1
-                end = s.find('"', start)
-                key = s[start:end]
-                i = s.find(':', end) + 1
-                while s[i].isspace(): i += 1
-                if s[i] == '[':
-                    val_start = i
-                    balance = 1
-                    i += 1
-                    while balance > 0:
-                        if s[i] == '[': balance += 1
-                        elif s[i] == ']': balance -= 1
-                        i += 1
-                    val_str = s[val_start:i]
-                    res[key] = self._parse_list(val_str)
-                i = s.find('"', i)
-                if i == -1: break
-        return res
-
-    def _parse_list(self, s):
-        s = s.strip()[1:-1].strip()
-        if not s: return []
-        res, i = [], 0
-        while i < len(s):
-            if s[i] == '{':
-                start = i
-                balance = 1
-                i += 1
-                while balance > 0:
-                    if s[i] == '{': balance += 1
-                    elif s[i] == '}': balance -= 1
-                    i += 1
-                obj_str = s[start:i]
-                res.append(self._parse_obj(obj_str))
-            i += 1
-        return res
-
-    def _parse_obj(self, s):
-        s = s.strip()[1:-1].strip()
-        if not s: return {}
-        res = {}
-        pairs = s.split(',')
-        for p in pairs:
-            if ':' not in p: continue
-            k, v = p.split(':', 1)
-            k = k.strip().strip('"')
-            v = v.strip().strip('"')
-            res[k] = v
-        return res
-
-    def _serialize_json(self, d):
-        # Custom zero-dependency structural serializer
-        parts = []
-        for k, v in d.items():
-            coll_parts = []
-            for doc in v:
-                doc_parts = [f'"{dk}":"{dv}"' for dk, dv in doc.items()]
-                coll_parts.append("{" + ",".join(doc_parts) + "}")
-            parts.append(f'"{k}":[' + ",".join(coll_parts) + "]")
-        return "{" + ",".join(parts) + "}"
-
-    def create_collection(self, coll_name):
+    def create_collection(self, coll_name, schema=None):
         if coll_name not in self.collections:
             self.collections[coll_name] = []
+            if schema:
+                self.schemas[coll_name] = Schema(schema)
             self._flush()
-            return f"Collection '{coll_name}' initialized."
+            msg = f"Collection '{coll_name}' initialized."
+            if schema: msg += f" with schema: {schema}"
+            return msg
         return f"Collection '{coll_name}' already exists."
 
     def _update_lru(self, key, val):
@@ -114,6 +117,14 @@ class NeBulaDB:
     def insert(self, coll_name, doc_id, data_dict):
         if coll_name not in self.collections:
             return "Error: Collection non-existent."
+        
+        # Validate against schema if it exists
+        if coll_name in self.schemas:
+            try:
+                self.schemas[coll_name].validate(data_dict)
+            except (ValueError, TypeError) as e:
+                return f"Error: {e}"
+
         # Enforce unique identifiers within the collection array
         for doc in self.collections[coll_name]:
             if doc.get("id") == doc_id: return "Error: Duplicate ID."
@@ -141,6 +152,14 @@ class NeBulaDB:
 
     def update(self, coll_name, doc_id, data_dict):
         if coll_name not in self.collections: return "Error: Collection not found."
+        
+        # Validate against schema if it exists
+        if coll_name in self.schemas:
+            try:
+                self.schemas[coll_name].validate(data_dict)
+            except (ValueError, TypeError) as e:
+                return f"Error: {e}"
+
         for doc in self.collections[coll_name]:
             if doc.get("id") == doc_id:
                 doc.update(data_dict)
@@ -166,20 +185,33 @@ class NeBulaDB:
 if __name__ == "__main__":
     args = sys.argv[1:]
     if len(args) < 3:
-        print("Usage: python nosql_db.py <db_name> <collection> <action> [args...]")
-        print("Actions: create, insert <id> <k:v...>, read <id>, update <id> <k:v...>, delete <id>")
+        print("Usage: python main.py <db_name> <collection> <action> [args...]")
+        print("Actions: create [schema_json], insert <id> <k:v...>, read <id>, update <id> <k:v...>, delete <id>")
         sys.exit(1)
 
     db = NeBulaDB(args[0])
     coll, action = args[1], args[2]
 
     if action == "create":
-        print(db.create_collection(coll))
+        schema = None
+        if len(args) >= 4:
+            try:
+                schema = json.loads(args[3])
+            except json.JSONDecodeError:
+                print("Error: Invalid schema JSON.")
+                sys.exit(1)
+        print(db.create_collection(coll, schema))
     elif action in ("insert", "update") and len(args) >= 5:
         payload = {}
         for item in args[4:]:
             if ":" in item:
                 k, v = item.split(":", 1)
+                try:
+                    # Attempt to parse as JSON to support int, bool, etc.
+                    v = json.loads(v)
+                except json.JSONDecodeError:
+                    # Fallback to string if not valid JSON
+                    pass
                 payload[k] = v
         method = getattr(db, action)
         print(method(coll, args[3], payload))
@@ -188,3 +220,4 @@ if __name__ == "__main__":
         print(method(coll, args[3]))
     else:
         print("Invalid Argument Configuration matrix structural limit reached.")
+
