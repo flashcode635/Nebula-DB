@@ -4,7 +4,7 @@ from main import NeBulaDB
 def run_tests():
     db_name = "test_warehouse"
     json_file = f"{db_name}.json"
-    # Reset any existing test artifacts to ensure clean environment state
+    # Reset any existing test artifacts to ensure a clean environment state
     if os.path.exists(json_file):
         os.remove(json_file)
     print("=== STARTING ARCHITECTURAL INTEGRATION TESTS ===")
