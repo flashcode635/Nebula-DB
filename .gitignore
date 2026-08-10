@@ -1,6 +1,6 @@
 __pycache__
 venv
-*.txt
+*t.txt
 db
 *.json
 .idea
