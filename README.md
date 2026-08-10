@@ -1,6 +1,6 @@
 # NeBula DB
 
-A minimal, zero-dependency, write-through NoSQL Document Database engine built entirely from scratch in pure Python. **NeBula DB** operates without a single external library import and implements an isolated, two-tier storage layer consisting of a primary flat-file data array and an independent LRU (Least Recently Used) read cache.
+A minimal NoSQL Document Database engine built entirely from scratch in pure Python. **NeBula DB** operates without a single external library import and implements an isolated, two-tier storage layer consisting of a primary flat-file data array and an independent LRU (Least Recently Used) read cache.
 
 ---
 
