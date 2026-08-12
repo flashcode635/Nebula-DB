@@ -1,12 +1,17 @@
 import os
 import json
+import shutil
 from main import NeBulaDB, FieldType
 
 def test_schema_enforcement():
     db_name = "schema_test_db"
     json_file = f"db/{db_name}.json"
+    cache_dir = f"db/{db_name}_cache"
+    
     if os.path.exists(json_file):
         os.remove(json_file)
+    if os.path.exists(cache_dir):
+        shutil.rmtree(cache_dir)
 
     db = NeBulaDB(db_name)
 
@@ -89,6 +94,13 @@ def test_schema_enforcement():
     assert 'students' in db2.schemas
     assert db2.schemas['students'].fields['rollno'] == FieldType.INTEGER
     print("Persistence test passed.")
+    db2.close()
+
+    # Clean up
+    if os.path.exists(json_file):
+        os.remove(json_file)
+    if os.path.exists(cache_dir):
+        shutil.rmtree(cache_dir)
 
     print("\n=== ALL SCHEMA TESTS PASSED SUCCESSFULLY ===")
 

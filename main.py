@@ -2,6 +2,7 @@ import sys
 import json
 from pathlib import Path
 from typing import Dict, Any, List, Optional
+from cache_engine import WiredTigerCache
 
 class FieldType:
     """Supported data types in application"""
@@ -69,7 +70,11 @@ class NeBulaDB:
         self.db_path = self.db_dir / f"{db_name}.json"
         self.collections = {}  
         self.schemas = {}  # Store schema definitions
-        self.read_cache = {}   
+        
+        # Initialize WiredTiger cache
+        cache_dir = self.db_dir / f"{db_name}_cache"
+        self.cache = WiredTigerCache(cache_dir=str(cache_dir), cache_size="100MB")
+        
         self._load_from_disk()
 
     def _load_from_disk(self):
@@ -93,37 +98,28 @@ class NeBulaDB:
         with open(self.db_path, "w") as f:
             json.dump(data, f, indent=4)
 
-    def create_collection(self, coll_name, schema=None):
+    def create_collection(self, coll_name, schema):
+        if not schema:
+            return "Error: Schema is mandatory for all collections."
         if coll_name not in self.collections:
             self.collections[coll_name] = []
-            if schema:
-                self.schemas[coll_name] = Schema(schema)
+            self.schemas[coll_name] = Schema(schema)
             self._flush()
-            msg = f"Collection '{coll_name}' initialized."
-            if schema: msg += f" with schema: {schema}"
-            return msg
+            return f"Collection '{coll_name}' initialized with schema: {schema}"
         return f"Collection '{coll_name}' already exists."
-
-    def _update_lru(self, key, val):
-        # Native Dict LRU implementation without collections library
-        if key in self.read_cache:
-            del self.read_cache[key]
-        elif len(self.read_cache) >= self.max_cache:
-            # Evict oldest entry (first item in iterator)
-            oldest = next(iter(self.read_cache))
-            del self.read_cache[oldest]
-        self.read_cache[key] = val
 
     def insert(self, coll_name, doc_id, data_dict):
         if coll_name not in self.collections:
             return "Error: Collection non-existent."
         
-        # Validate against schema if it exists
-        if coll_name in self.schemas:
-            try:
-                self.schemas[coll_name].validate(data_dict)
-            except (ValueError, TypeError) as e:
-                return f"Error: {e}"
+        # Validate against mandatory schema
+        if coll_name not in self.schemas:
+            return "Error: Collection schema missing (Strict Mode Enforced)."
+            
+        try:
+            self.schemas[coll_name].validate(data_dict)
+        except (ValueError, TypeError) as e:
+            return f"Error: {e}"
 
         # Enforce unique identifiers within the collection array
         for doc in self.collections[coll_name]:
@@ -136,37 +132,39 @@ class NeBulaDB:
         return f"Document {doc_id} committed to primary storage target."
 
     def read(self, coll_name, doc_id):
-        # Access isolated Read Copy (LRU Cache Layer) first
-        cache_key = (coll_name, doc_id)
-        if cache_key in self.read_cache:
-            self._update_lru(cache_key, self.read_cache[cache_key])
-            return f"[Cache Hit] {self.read_cache[cache_key]}"
+        # Access isolated Read Copy (WiredTiger Cache Layer) first
+        cache_key = f"{coll_name}:{doc_id}"
+        cached_value = self.cache.get(cache_key)
+        if cached_value is not None:
+            return f"[Cache Hit] {cached_value}"
         
         # Read Miss -> Standard Linear O(N) Search on Original Object Array
         if coll_name not in self.collections: return "Error: Collection not found."
         for doc in self.collections[coll_name]:
             if doc.get("id") == doc_id:
-                self._update_lru(cache_key, doc)  # Populate Read Copy Cache
+                self.cache.set(cache_key, doc, ttl_seconds=3600)  # Populate Cache with 1 hour TTL
                 return f"[Cache Miss -> Loaded] {doc}"
         return "Error: Document context empty."
 
     def update(self, coll_name, doc_id, data_dict):
         if coll_name not in self.collections: return "Error: Collection not found."
         
-        # Validate against schema if it exists
-        if coll_name in self.schemas:
-            try:
-                self.schemas[coll_name].validate(data_dict)
-            except (ValueError, TypeError) as e:
-                return f"Error: {e}"
+        # Validate against mandatory schema
+        if coll_name not in self.schemas:
+            return "Error: Collection schema missing (Strict Mode Enforced)."
+            
+        try:
+            self.schemas[coll_name].validate(data_dict)
+        except (ValueError, TypeError) as e:
+            return f"Error: {e}"
 
         for doc in self.collections[coll_name]:
             if doc.get("id") == doc_id:
                 doc.update(data_dict)
                 self._flush()
                 # Invalidate existing isolated read copies to enforce consistency
-                cache_key = (coll_name, doc_id)
-                if cache_key in self.read_cache: del self.read_cache[cache_key]
+                cache_key = f"{coll_name}:{doc_id}"
+                self.cache.delete(cache_key)
                 return f"Document {doc_id} mutated successfully."
         return "Error: Document target missing."
 
@@ -176,48 +174,57 @@ class NeBulaDB:
         self.collections[coll_name] = [d for d in self.collections[coll_name] if d.get("id") != doc_id]
         if len(self.collections[coll_name]) < initial_len:
             self._flush()
-            cache_key = (coll_name, doc_id)
-            if cache_key in self.read_cache: del self.read_cache[cache_key]
+            cache_key = f"{coll_name}:{doc_id}"
+            self.cache.delete(cache_key)
             return f"Document {doc_id} purged."
         return "Error: Document target missing."
+    
+    def close(self):
+        """Clean up resources"""
+        if hasattr(self, 'cache'):
+            self.cache.close()
 
 # --- CLI Execution Layer ---
 if __name__ == "__main__":
     args = sys.argv[1:]
     if len(args) < 3:
         print("Usage: python main.py <db_name> <collection> <action> [args...]")
-        print("Actions: create [schema_json], insert <id> <k:v...>, read <id>, update <id> <k:v...>, delete <id>")
+        print("Actions: create <schema_json>, insert <id> <k:v...>, read <id>, update <id> <k:v...>, delete <id>")
         sys.exit(1)
 
     db = NeBulaDB(args[0])
     coll, action = args[1], args[2]
 
-    if action == "create":
-        schema = None
-        if len(args) >= 4:
+    try:
+        if action == "create":
+            if len(args) < 4:
+                print("Error: Schema JSON is mandatory for collection creation.")
+                sys.exit(1)
             try:
                 schema = json.loads(args[3])
             except json.JSONDecodeError:
                 print("Error: Invalid schema JSON.")
                 sys.exit(1)
-        print(db.create_collection(coll, schema))
-    elif action in ("insert", "update") and len(args) >= 5:
-        payload = {}
-        for item in args[4:]:
-            if ":" in item:
-                k, v = item.split(":", 1)
-                try:
-                    # Attempt to parse as JSON to support int, bool, etc.
-                    v = json.loads(v)
-                except json.JSONDecodeError:
-                    # Fallback to string if not valid JSON
-                    pass
-                payload[k] = v
-        method = getattr(db, action)
-        print(method(coll, args[3], payload))
-    elif action in ("read", "delete") and len(args) == 4:
-        method = getattr(db, action)
-        print(method(coll, args[3]))
-    else:
-        print("Invalid Argument Configuration matrix structural limit reached.")
+            print(db.create_collection(coll, schema))
+        elif action in ("insert", "update") and len(args) >= 5:
+            payload = {}
+            for item in args[4:]:
+                if ":" in item:
+                    k, v = item.split(":", 1)
+                    try:
+                        # Attempt to parse as JSON to support int, bool, etc.
+                        v = json.loads(v)
+                    except json.JSONDecodeError:
+                        # Fallback to string if not valid JSON
+                        pass
+                    payload[k] = v
+            method = getattr(db, action)
+            print(method(coll, args[3], payload))
+        elif action in ("read", "delete") and len(args) == 4:
+            method = getattr(db, action)
+            print(method(coll, args[3]))
+        else:
+            print("Invalid Argument Configuration matrix structural limit reached.")
+    finally:
+        db.close()
 
