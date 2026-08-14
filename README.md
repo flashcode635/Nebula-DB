@@ -1,6 +1,3 @@
-Below is a detailed `README.md` you can place at the root of your project.
-
-```md
 # NeBulaDB
 
 NeBulaDB is a lightweight, file-backed document database with strict schema enforcement, JSON persistence, and a WiredTiger-based cache layer.
@@ -841,5 +838,4 @@ For `test_schema.py`:
 ```bash
 rm db/schema_test_db.json
 rm -rf db/schema_test_db_cache
-```
 ```
