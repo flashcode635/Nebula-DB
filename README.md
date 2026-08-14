@@ -28,13 +28,6 @@ It provides a simple document-oriented API supporting collection creation, inser
 
 ---
 
-## Overview
-
-NeBulaDB is designed as a minimal embedded-style database engine. Each database instance is backed by a JSON file inside the `db/` directory. Collections are created with mandatory schemas, and every inserted or updated document is validated against that schema before being written.
-
-The project also integrates a WiredTiger cache layer to cache frequently accessed documents. Reads first check the cache, and on a cache miss, the engine scans the in-memory collection, loads the document into the cache, and returns it.
-
----
 
 ## Features
 
@@ -55,13 +48,6 @@ The project also integrates a WiredTiger cache layer to cache frequently accesse
 ---
 
 ## Architecture
-
-NeBulaDB uses a write-through-style architecture:
-
-1. Data is written to the in-memory collection structure.
-2. The full database state is flushed to the JSON file on disk.
-3. Cached read copies are invalidated on updates and deletes.
-4. Reads check the WiredTiger cache first before scanning the primary collection.
 
 High-level flow:
 
@@ -320,7 +306,7 @@ In Python, `True` and `False` are technically instances of `bool`, and `bool` is
 
 ---
 
-## Python API Usage
+## Usage
 
 ### Import the Database
 
@@ -505,48 +491,6 @@ Document item_01 committed to primary storage target.
 ```
 
 The CLI attempts to parse each value as JSON first. If parsing fails, the value is stored as a string.
-
-Examples:
-
-```bash
-qty:15
-```
-
-becomes:
-
-```python
-15
-```
-
-```bash
-price:999.99
-```
-
-becomes:
-
-```python
-999.99
-```
-
-```bash
-active:true
-```
-
-becomes:
-
-```python
-True
-```
-
-```bash
-name:laptop
-```
-
-becomes:
-
-```python
-"laptop"
-```
 
 ---
 
