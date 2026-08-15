@@ -1,161 +1,63 @@
-# NeBulaDB
+# NebulaDB
 
-NeBulaDB is a lightweight, file-backed document database with strict schema enforcement, JSON persistence, and a WiredTiger-based cache layer.
-
-It provides a simple document-oriented API supporting collection creation, inserts, reads, updates, and deletes. Data is stored in a JSON file on disk, while read copies can be cached through WiredTiger for faster repeated access.
-
----
-
-## Table of Contents
-
-- [Overview](#overview)
-- [Features](#features)
-- [Architecture](#architecture)
-- [Project Structure](#project-structure)
-- [Requirements](#requirements)
-- [Installation](#installation)
-- [Core Concepts](#core-concepts)
-- [Schema Enforcement](#schema-enforcement)
-- [Supported Field Types](#supported-field-types)
-- [Python API Usage](#python-api-usage)
-- [CLI Usage](#cli-usage)
-- [Storage Format](#storage-format)
-- [Caching Behavior](#caching-behavior)
-- [Testing](#testing)
-- [Error Handling](#error-handling)
-- [Current Limitations](#current-limitations)
-- [Troubleshooting](#troubleshooting)
-
----
-
+An embedded, schema-driven database engine with WiredTiger-backed caching and an interactive REPL shell. NebulaDB provides type-safe collection management with full CRUD operations, schema validation, and TTL-enabled caching.
 
 ## Features
 
-- JSON file persistence
-- Mandatory schema enforcement for every collection
-- Field type validation
-- Detection of missing fields
-- Detection of unknown/extra fields
-- Document insert, read, update, and delete operations
-- Unique document ID enforcement inside each collection
-- WiredTiger-based cache engine
-- Cache-hit and cache-miss read flow
-- Cache invalidation on update and delete
-- Cache TTL support
-- Simple CLI interface
-- Integration tests for core database behavior and schema enforcement
-
----
-
-## Architecture
-
-High-level flow:
-
-```text
-           +-------------------+
-           |   Application     |
-           +---------+---------+
-                     |
-                     v
-           +-------------------+
-           |     NeBulaDB      |
-           +---------+---------+
-                     |
-        +------------+------------+
-        |                         |
-        v                         v
-+---------------+       +---------------------+
-| JSON Storage  |       | WiredTiger Cache    |
-| db/*.json     |       | db/*_cache          |
-+---------------+       +---------------------+
-```
-
-### Read Flow
-
-```text
-Read Request
-    |
-    v
-Check WiredTiger Cache
-    |
-    +--> Cache Hit --> Return cached document
-    |
-    +--> Cache Miss --> Scan in-memory collection
-                         |
-                         v
-                      Store document in cache
-                         |
-                         v
-                      Return document
-```
-
-### Write Flow
-
-```text
-Insert/Update Request
-    |
-    v
-Validate schema
-    |
-    v
-Modify in-memory collection
-    |
-    v
-Flush JSON file
-    |
-    v
-Invalidate cache entry
-```
-
----
+- **Schema-Based Collections**: Define strict schemas for your collections with type validation
+- **Type Safety**: Supports multiple field types (String, Integer, Float, Number, Boolean, Array, Object, Null)
+- **CRUD Operations**: Full support for Create, Read, Update, and Delete operations
+- **WiredTiger Caching**: High-performance caching layer with configurable size and TTL support
+- **Write-Through Strategy**: Automatic cache invalidation on updates for data consistency
+- **Interactive REPL Shell**: User-friendly command-line interface for database operations
+- **Persistent Storage**: Data is stored in JSON format on disk
+- **Efficient Querying**: Filter data using common comparison operators (=, !=, >, <, >=, <=)
 
 ## Project Structure
 
-```text
-.
-├── main.py              # Core database engine, schema validation, CLI
-├── cache_engine.py      # WiredTiger cache wrapper
-├── test.py              # Core integration tests
-├── test_schema.py       # Schema enforcement tests
-├── requirements.txt     # Python dependencies
-└── db/                  # Runtime database and cache directory
+```
+NebulaDB/
+├── main.py                # Core database engine (NeBulaDB class)
+├── cache_engine.py        # WiredTiger caching implementation
+├── shell.py               # Interactive REPL shell
+├── test_schema.py         # Schema validation tests
+├── test.py                # Additional tests
+├── requirements.txt       # Project dependencies
+├── post.txt               # Post-implementation notes
+└── db/                    # Data directory (created at runtime)
+    ├── nebula_shell_db.json       # Persisted data
+    └── nebula_shell_db_cache/     # WiredTiger cache files
 ```
 
-The `db/` directory is created automatically when a database is initialized.
+## Prerequisites
 
-Example generated files:
-
-```text
-db/
-├── mydb.json
-└── mydb_cache/
-```
-
----
-
-## Requirements
-
-Python dependencies:
-
-```txt
-wiredtiger==11.3.1
-```
-
-NeBulaDB uses the `wiredtiger` package for its cache engine.
-
----
+- Python 3.7 or higher
+- pip (Python package manager)
 
 ## Installation
 
-1. Clone or download the project.
-
-2. Create a virtual environment:
+### 1. Clone or Download the Project
 
 ```bash
+git clone <repository_url>
+cd NebulaDB
+```
+
+### 2. Create a Virtual Environment
+
+Linux/macOS:
+
+```bash
+python3 -m venv .venv
+```
+
+Windows:
+
+```powershell
 python -m venv .venv
 ```
 
-3. Activate the virtual environment.
+### 3. Activate the Virtual Environment
 
 Linux/macOS:
 
@@ -169,617 +71,246 @@ Windows:
 .venv\Scripts\activate
 ```
 
-4. Install dependencies:
+### 4. Install Dependencies
 
 ```bash
 pip install -r requirements.txt
 ```
 
----
-
-## Core Concepts
-
-### Database
-
-A database is represented by a JSON file under the `db/` directory.
-
-Example:
-
-```python
-from main import NeBulaDB
-
-db = NeBulaDB("mydb")
-```
-
-This creates or opens:
-
-```text
-db/mydb.json
-```
-
-and uses a WiredTiger cache directory:
-
-```text
-db/mydb_cache/
-```
-
-### Collection
-
-A collection is a named list of documents.
-
-Every collection must have a schema.
-
-Example:
-
-```python
-schema = {
-    "name": "string",
-    "qty": "integer"
-}
-
-db.create_collection("products", schema)
-```
-
-### Document
-
-A document is a dictionary stored inside a collection.
-
-Each document has an `id` field assigned by the user.
-
-Example:
-
-```python
-{
-    "id": "item_01",
-    "name": "laptop",
-    "qty": 15
-}
-```
-
----
-
-## Schema Enforcement
-
-Schemas are mandatory for all collections.
-
-When inserting or updating a document, NeBulaDB validates:
-
-1. All required fields are present.
-2. No unknown fields are present.
-3. Each field matches its expected type.
-
-### Example Valid Schema
-
-```python
-schema = {
-    "name": "string",
-    "rollno": "integer",
-    "pass": "boolean",
-    "marks": "float",
-    "subjects": "array"
-}
-```
-
-### Example Valid Document
-
-```python
-student = {
-    "name": "John Doe",
-    "rollno": 123,
-    "pass": True,
-    "marks": 89.5,
-    "subjects": ["Math", "Science"]
-}
-```
-
-### Validation Rules
-
-| Rule | Behavior |
-|---|---|
-| Missing field | Insert/update is rejected |
-| Extra field | Insert/update is rejected |
-| Wrong type | Insert/update is rejected |
-| Duplicate document ID | Insert is rejected |
-| Non-existent collection | Operation is rejected |
-| Missing schema | Operation is rejected |
-
----
-
-## Supported Field Types
-
-The `FieldType` class defines the supported schema types.
-
-| FieldType Constant | String Value | Python Type Accepted |
-|---|---|---|
-| `FieldType.STRING` | `"string"` | `str` |
-| `FieldType.INTEGER` | `"integer"` | `int`, excluding `bool` |
-| `FieldType.FLOAT` | `"float"` | `int` or `float`, excluding `bool` |
-| `FieldType.NUMBER` | `"number"` | `int` or `float`, excluding `bool` |
-| `FieldType.BOOLEAN` | `"boolean"` | `bool` |
-| `FieldType.ARRAY` | `"array"` | `list` |
-| `FieldType.OBJECT` | `"object"` | `dict` |
-| `FieldType.NULL` | `"null"` | `None` |
-
-Important:
-
-In Python, `True` and `False` are technically instances of `bool`, and `bool` is a subclass of `int`. NeBulaDB explicitly rejects booleans where integers, floats, or numbers are expected.
-
----
-
 ## Usage
 
-### Import the Database
+### Interactive Shell Mode (Recommended)
+
+Start the interactive REPL shell:
+
+```bash
+python shell.py
+```
+
+Or specify a custom database name:
+
+```bash
+python shell.py my_custom_db
+```
+
+#### Shell Commands
+
+**Create a Collection with Schema**
+
+```bash
+CREATE COLLECTION users {"name":"string","age":"integer","email":"string","active":"boolean"}
+```
+
+**Insert a Document**
+
+```bash
+INSERT INTO users u1 {"name":"Ramit","age":22,"email":"ramit@example.com","active":true}
+```
+
+**Read a Document**
+
+```bash
+READ users u1
+```
+
+**Update a Document**
+
+```bash
+UPDATE users u1 {"age":23}
+```
+
+**Delete a Document**
+
+```bash
+DELETE users u1
+```
+
+**Query with Filters**
+
+```bash
+FIND IN users WHERE age > 20
+```
+
+Supported operators: `=`, `!=`, `>`, `<`, `>=`, `<=`
+
+**View Cache Statistics**
+
+```bash
+STATS
+```
+
+**Display Help**
+
+```bash
+HELP
+```
+
+**Exit the Shell**
+
+```bash
+EXIT
+```
+
+or
+
+```bash
+QUIT
+```
+
+### Programmatic Usage
+
+Use NebulaDB directly in Python code:
 
 ```python
 from main import NeBulaDB, FieldType
-```
 
-### Create a Database Instance
+# Initialize database
+db = NeBulaDB("my_app_db")
 
-```python
-db = NeBulaDB("mydb")
-```
-
-Optional cache limit parameter:
-
-```python
-db = NeBulaDB("mydb", max_cache=3)
-```
-
-Note: In the current WiredTiger-based cache implementation, cache sizing is handled through WiredTiger connection configuration.
-
----
-
-### Create a Collection
-
-```python
+# Create a collection with schema
 schema = {
-    "name": "string",
-    "qty": "integer"
+    'name': FieldType.STRING,
+    'age': FieldType.INTEGER,
+    'email': FieldType.STRING,
+    'active': FieldType.BOOLEAN
 }
+print(db.create_collection('users', schema))
 
-result = db.create_collection("products", schema)
-print(result)
-```
+# Insert a document
+user_data = {
+    'name': 'John Doe',
+    'age': 30,
+    'email': 'john@example.com',
+    'active': True
+}
+print(db.insert('users', 'user_1', user_data))
 
-Example output:
+# Read a document
+print(db.read('users', 'user_1'))
 
-```text
-Collection 'products' initialized with schema: {'name': 'string', 'qty': 'integer'}
-```
+# Update a document
+print(db.update('users', 'user_1', {'age': 31}))
 
----
+# Delete a document
+print(db.delete('users', 'user_1'))
 
-### Insert a Document
-
-```python
-result = db.insert(
-    "products",
-    "item_01",
-    {
-        "name": "laptop",
-        "qty": 15
-    }
-)
-
-print(result)
-```
-
-Example output:
-
-```text
-Document item_01 committed to primary storage target.
-```
-
----
-
-### Read a Document
-
-```python
-result = db.read("products", "item_01")
-print(result)
-```
-
-First read example:
-
-```text
-[Cache Miss -> Loaded] {'id': 'item_01', 'name': 'laptop', 'qty': 15}
-```
-
-Second read example:
-
-```text
-[Cache Hit] {'id': 'item_01', 'name': 'laptop', 'qty': 15}
-```
-
----
-
-### Update a Document
-
-Updates require the full document payload because the entire document is validated against the schema.
-
-```python
-result = db.update(
-    "products",
-    "item_01",
-    {
-        "name": "gaming laptop",
-        "qty": 10
-    }
-)
-
-print(result)
-```
-
-Example output:
-
-```text
-Document item_01 mutated successfully.
-```
-
----
-
-### Delete a Document
-
-```python
-result = db.delete("products", "item_01")
-print(result)
-```
-
-Example output:
-
-```text
-Document item_01 purged.
-```
-
----
-
-### Close the Database
-
-```python
+# Close connection
 db.close()
 ```
 
-This closes the underlying WiredTiger cache connection.
+## Supported Field Types
 
----
+The `FieldType` class defines all supported data types:
 
-## CLI Usage
+| Type      | Description       | Example            |
+| --------- | ----------------- | ------------------ |
+| `STRING`  | Text data         | `"John"`           |
+| `INTEGER` | Whole numbers     | `42`               |
+| `FLOAT`   | Decimal numbers   | `3.14`             |
+| `NUMBER`  | Integer or float  | `42` or `3.14`     |
+| `BOOLEAN` | True/False values | `true`             |
+| `ARRAY`   | List of items     | `[1, 2, 3]`        |
+| `OBJECT`  | Nested object     | `{"key": "value"}` |
+| `NULL`    | Null value        | `null`             |
 
-NeBulaDB includes a command-line interface.
+## Caching System
 
-```bash
-python main.py <db_name> <collection> <action> [args...]
-```
+NebulaDB uses WiredTiger for efficient caching:
 
-### Actions
+- **Cache Size**: Configurable per database instance (default: 100MB)
+- **TTL Support**: Set expiration time for cached entries (optional)
+- **Automatic Invalidation**: Cache is cleared on document updates/deletes
+- **Cache Hits**: First read returns cached value if available
+- **Cache Misses**: Data is fetched from disk and cached for future reads
 
-| Action | Arguments | Description |
-|---|---|---|
-| `create` | `<schema_json>` | Create a collection with a schema |
-| `insert` | `<id> <key:value...>` | Insert a document |
-| `read` | `<id>` | Read a document |
-| `update` | `<id> <key:value...>` | Update a document |
-| `delete` | `<id>` | Delete a document |
-
----
-
-### Create a Collection
-
-```bash
-python main.py shop products create '{"name": "string", "qty": "integer"}'
-```
-
-Example output:
-
-```text
-Collection 'products' initialized with schema: {'name': 'string', 'qty': 'integer'}
-```
-
----
-
-### Insert a Document
-
-```bash
-python main.py shop products insert item_01 name:laptop qty:15
-```
-
-Example output:
-
-```text
-Document item_01 committed to primary storage target.
-```
-
-The CLI attempts to parse each value as JSON first. If parsing fails, the value is stored as a string.
-
----
-
-### Read a Document
-
-```bash
-python main.py shop products read item_01
-```
-
-Example first read:
-
-```text
-[Cache Miss -> Loaded] {'id': 'item_01', 'name': 'laptop', 'qty': 15}
-```
-
-Example second read:
-
-```text
-[Cache Hit] {'id': 'item_01', 'name': 'laptop', 'qty': 15}
-```
-
----
-
-### Update a Document
-
-```bash
-python main.py shop products update item_01 name:laptop qty:8
-```
-
-Example output:
-
-```text
-Document item_01 mutated successfully.
-```
-
-Important: because schema validation applies to the full document, updates should include all required fields.
-
----
-
-### Delete a Document
-
-```bash
-python main.py shop products delete item_01
-```
-
-Example output:
-
-```text
-Document item_01 purged.
-```
-
----
-
-## Storage Format
-
-Each database file stores both collections and schemas.
-
-Example:
-
-```json
-{
-    "collections": {
-        "products": [
-            {
-                "id": "item_01",
-                "name": "laptop",
-                "qty": 15
-            }
-        ]
-    },
-    "schemas": {
-        "products": {
-            "name": "string",
-            "qty": "integer"
-        }
-    }
-}
-```
-
-The database file is flushed on every successful write operation.
-
----
-
-## Caching Behavior
-
-NeBulaDB uses WiredTiger as a cache layer through the `WiredTigerCache` class.
-
-### Cache Location
-
-For a database named `mydb`, cache files are stored under:
-
-```text
-db/mydb_cache/
-```
-
-### Cache Key Format
-
-Documents are cached using the following key format:
-
-```text
-<collection>:<document_id>
-```
-
-Example:
-
-```text
-products:item_01
-```
-
-### TTL Entries
-
-If a TTL is provided, an additional key is stored:
-
-```text
-<collection>:<document_id>__ttl
-```
-
-Example:
-
-```text
-products:item_01__ttl
-```
-
-The TTL value is stored as a Unix timestamp.
-
-### Default Read TTL
-
-When a document is loaded after a cache miss, it is cached with a TTL of 3600 seconds.
+Example with TTL:
 
 ```python
-self.cache.set(cache_key, doc, ttl_seconds=3600)
+# Documents cached for 1 hour (3600 seconds)
+db.read('users', 'user_1')
 ```
-
-### Cache Invalidation
-
-Cache entries are deleted when documents are updated or deleted.
-
-This ensures that subsequent reads do not return stale cached documents.
-
----
 
 ## Testing
 
-The project includes two test files.
-
-### Run Core Integration Tests
-
-```bash
-python test.py
-```
-
-This tests:
-
-- Database initialization
-- Collection creation
-- Insert operations
-- Read operations
-- Cache miss and cache hit behavior
-- Cache persistence after restart
-- Update operations
-- Cache invalidation after update
-- Delete operations
-
-Expected final output:
-
-```text
-=== ALL ARCHITECTURAL TESTS PASSED SUCCESSFULLY ===
-```
-
----
-
-### Run Schema Enforcement Tests
+Run the schema validation tests:
 
 ```bash
 python test_schema.py
 ```
 
-This tests:
+Run additional tests:
 
-- Creating a collection with a schema
-- Inserting valid documents
-- Rejecting wrong field types
-- Rejecting missing required fields
-- Rejecting unknown/extra fields
-- Updating documents with valid data
-- Rejecting updates with invalid types
-- Schema persistence across database restarts
-
-Expected final output:
-
-```text
-=== ALL SCHEMA TESTS PASSED SUCCESSFULLY ===
+```bash
+python test.py
 ```
 
----
+## Implementation Notes
 
-## Error Handling
+### Day-2 Improvement: Persistent Shell Connection
 
-NeBulaDB returns error strings instead of raising unhandled exceptions during most user-facing operations.
+The `shell.py` implements a critical improvement from Day-2 notes:
 
-### Common Error Messages
+- **Before**: Each command spawned a new Python process, tearing down the WiredTiger cache
+- **After**: Single persistent connection maintains cache across all commands
 
-| Error | Meaning |
-|---|---|
-| `Error: Schema is mandatory for all collections.` | Collection creation requires a schema |
-| `Error: Collection non-existent.` | The target collection does not exist |
-| `Error: Collection schema missing (Strict Mode Enforced).` | The collection exists but has no schema |
-| `Error: Duplicate ID.` | A document with the same ID already exists |
-| `Error: Missing required field: <field>` | A required schema field was not provided |
-| `Error: Unknown field: <field>` | The document contains a field not defined in the schema |
-| `Error: Field '<field>' must be <type>` | The field value has the wrong type |
-| `Error: Collection not found.` | The collection does not exist |
-| `Error: Document context empty.` | The requested document was not found during read |
-| `Error: Document target missing.` | The requested document was not found during update or delete |
+This significantly improves performance for interactive workflows.
 
----
+### Data Persistence
 
-## Current Limitations
+- Collections are stored as JSON in `db/{db_name}.json`
+- Schema definitions are preserved with collection data
+- WiredTiger cache files are stored in `db/{db_name}_cache/`
 
-- Updates require the full document payload.
-- Partial updates are not supported.
-- Documents are stored in memory as Python lists, so lookups by ID are O(N).
-- There is no query engine or filtering system.
-- There is no transaction support.
-- There is no multi-user concurrency control.
-- The CLI value parser is simple and relies on `key:value` formatting.
-- Schema definitions are flat and do not currently validate nested object/array element types.
+### Error Handling
 
----
+The system enforces strict schema validation:
+
+- Required fields must be present
+- Field values must match declared types
+- Duplicate document IDs are rejected
+- Unknown fields are rejected
+
+## Dependencies
+
+- **wiredtiger** (11.3.1): High-performance storage engine for caching
 
 ## Troubleshooting
 
-### `ModuleNotFoundError: No module named 'wiredtiger'`
+### Virtual Environment Issues
 
-Install the dependency:
+If commands are not found after activation, try:
 
 ```bash
-pip install -r requirements.txt
+# Linux/macOS
+source .venv/bin/activate
+
+# Windows (PowerShell requires execution policy adjustment)
+Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
+.venv\Scripts\activate
 ```
+
+### WiredTiger Connection Errors
+
+Ensure the `db/` directory exists and is writable:
+
+```bash
+mkdir -p db
+```
+
+### Cache Issues
+
+Clear the cache directory to reset:
+
+```bash
+rm -rf db/nebula_shell_db_cache/
+```
+
+## Support & Contribution
+
+For issues, suggestions, or contributions, please review the project code and open discussions as needed.
 
 ---
 
-### WiredTiger installation issues
-
-The `wiredtiger` package may require a compatible system environment and build tooling depending on your platform.
-
-If installation fails, check:
-
-- Python version compatibility
-- System compiler availability
-- WiredTiger availability for your operating system
-- Virtual environment activation
-
----
-
-### Stale cache or unexpected read results
-
-Delete the database file and cache directory, then rerun.
-
-For a database named `mydb`:
-
-```bash
-rm db/mydb.json
-rm -rf db/mydb_cache
-```
-
-Windows PowerShell:
-
-```powershell
-Remove-Item db/mydb.json
-Remove-Item db/mydb_cache -Recurse -Force
-```
-
----
-
-### Tests fail after manual changes
-
-The test files clean up their own generated artifacts, but if a previous run was interrupted, manually remove the test database files.
-
-For `test.py`:
-
-```bash
-rm db/test_warehouse.json
-rm -rf db/test_warehouse_cache
-```
-
-For `test_schema.py`:
-
-```bash
-rm db/schema_test_db.json
-rm -rf db/schema_test_db_cache
-```
+**Version**: 0.1  
+**Database Engine**: WiredTiger 11.3.1  
+**Python Version**: 3.7+
