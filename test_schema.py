@@ -1,5 +1,4 @@
 import os
-import json
 import shutil
 from main import NeBulaDB, FieldType
 
