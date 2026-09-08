@@ -23,16 +23,22 @@ NebulaDB/
 ├── test_schema.py         # Schema validation tests
 ├── test.py                # Additional tests
 ├── requirements.txt       # Project dependencies
-├── post.txt               # Post-implementation notes
 └── db/                    # Data directory (created at runtime)
     ├── nebula_shell_db.json       # Persisted data
     └── nebula_shell_db_cache/     # WiredTiger cache files
 ```
 
-## Prerequisites
+## Prerequisites (Linux)
 
-- Python 3.7 or higher
-- pip (Python package manager)
+- Python 3.7 or newer
+- `python3-venv` and `pip`
+
+On Debian/Ubuntu, install the prerequisites with:
+
+```bash
+sudo apt update
+sudo apt install -y python3 python3-pip python3-venv
+```
 
 ## Installation
 
@@ -43,55 +49,49 @@ git clone <repository_url>
 cd NebulaDB
 ```
 
-### 2. Create a Virtual Environment
-
-Linux/macOS:
+### 2. Create and Activate a Virtual Environment
 
 ```bash
 python3 -m venv .venv
-```
-
-Windows:
-
-```powershell
-python -m venv .venv
-```
-
-### 3. Activate the Virtual Environment
-
-Linux/macOS:
-
-```bash
 source .venv/bin/activate
 ```
 
-Windows:
+If your shell does not provide `python3`, use `python` instead.
 
-```powershell
-.venv\Scripts\activate
-```
-
-### 4. Install Dependencies
+### 3. Install Dependencies
 
 ```bash
-pip install -r requirements.txt
+python -m pip install --upgrade pip
+python -m pip install -r requirements.txt
 ```
 
-## Usage
+### 4. Start NebulaDB
 
-### Interactive Shell Mode (Recommended)
-
-Start the interactive REPL shell:
+Run the interactive shell from the repository root:
 
 ```bash
 python shell.py
 ```
 
-Or specify a custom database name:
+You should see a `nebula>` prompt. Type `HELP` to list commands and `EXIT`
+or `QUIT` to stop the shell. The default database is stored in
+`db/nebula_shell_db.json`; pass a different name to use another database:
 
 ```bash
 python shell.py my_custom_db
 ```
+
+For a quick non-interactive startup check:
+
+```bash
+printf 'HELP\nEXIT\n' | python shell.py
+```
+
+The `db/` directory and its database/cache files are created automatically.
+
+## Usage
+
+### Interactive Shell Mode
 
 #### Shell Commands
 
@@ -236,15 +236,10 @@ The system enforces strict schema validation:
 
 ### Virtual Environment Issues
 
-If commands are not found after activation, try:
+If commands are not found after activation, run:
 
 ```bash
-# Linux/macOS
 source .venv/bin/activate
-
-# Windows (PowerShell requires execution policy adjustment)
-Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
-.venv\Scripts\activate
 ```
 
 ### WiredTiger Connection Errors
