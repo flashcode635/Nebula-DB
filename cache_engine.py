@@ -13,12 +13,13 @@ class WiredTigerCache:
             cache_size: Max memory cache size (e.g., "100MB", "1GB")
         """
         self.cache_dir = cache_dir
+        self._closed = False
         os.makedirs(cache_dir, exist_ok=True)
         
         # Open WiredTiger connection
         self.conn = wiredtiger.wiredtiger_open(
             cache_dir,
-            f"create,cache_size={cache_size}"
+            f"create,cache_size={cache_size},statistics=(fast)"
         )
         
         # Create session
@@ -131,14 +132,32 @@ class WiredTigerCache:
     
     def get_stats(self):
         """Get cache statistics"""
-        stats = self.session.get_stats()
-        return stats
+        stats_cursor = self.session.open_cursor("statistics:")
+        try:
+            stats = {}
+            while stats_cursor.next() == 0:
+                description, value = stats_cursor.get_value()[0], stats_cursor.get_value()[2]
+                stats[description] = value
+            return stats
+        finally:
+            stats_cursor.close()
     
     def close(self):
         """Close WiredTiger connections"""
-        if hasattr(self, 'cursor') and self.cursor:
-            self.cursor.close()
-        if hasattr(self, 'session') and self.session:
-            self.session.close()
-        if hasattr(self, 'conn') and self.conn:
-            self.conn.close()
+        if self._closed:
+            return
+
+        self._closed = True
+        cursor = getattr(self, "cursor", None)
+        session = getattr(self, "session", None)
+        conn = getattr(self, "conn", None)
+
+        if cursor:
+            cursor.close()
+        self.cursor = None
+        if session:
+            session.close()
+        self.session = None
+        if conn:
+            conn.close()
+        self.conn = None

@@ -20,14 +20,18 @@ class Schema:
         """Define schema for a collection"""
         self.fields = fields
         
-    def validate(self, data: Dict[str, Any]) -> bool:
-        """Validate if data matches the schema"""
-        # Check all required fields exist
-        for field, field_type in self.fields.items():
-            if field not in data:
-                raise ValueError(f"Missing required field: {field}")
-            
-            value = data[field]
+    def validate(self, data: Dict[str, Any], require_all: bool = True) -> bool:
+        """Validate data against the schema, optionally allowing partial data."""
+        if require_all:
+            for field in self.fields:
+                if field not in data:
+                    raise ValueError(f"Missing required field: {field}")
+
+        for field, value in data.items():
+            if field not in self.fields:
+                raise ValueError(f"Unknown field: {field}")
+
+            field_type = self.fields[field]
             
             # Type validation
             if field_type == FieldType.STRING:
@@ -55,11 +59,6 @@ class Schema:
                 if value is not None:
                     raise TypeError(f"Field '{field}' must be null, got {type(value).__name__}")
         
-        # Check for extra fields
-        for field in data.keys():
-            if field not in self.fields:
-                raise ValueError(f"Unknown field: {field}")
-                
         return True
 
 class NeBulaDB:
@@ -154,7 +153,7 @@ class NeBulaDB:
             return "Error: Collection schema missing (Strict Mode Enforced)."
             
         try:
-            self.schemas[coll_name].validate(data_dict)
+            self.schemas[coll_name].validate(data_dict, require_all=False)
         except (ValueError, TypeError) as e:
             return f"Error: {e}"
 

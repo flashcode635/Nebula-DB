@@ -22,9 +22,25 @@ Example session:
 
 import sys
 import json
+import os
 import time
 
 from main import NeBulaDB
+
+class Colors:
+    """ANSI colors used by the interactive shell."""
+
+    RESET = "\033[0m"
+    GREEN = "\033[32m"
+    RED = "\033[31m"
+    YELLOW = "\033[33m"
+    BLUE = "\033[34m"
+    CYAN = "\033[36m"
+    MAGENTA = "\033[35m"
+    DIM = "\033[2m"
+    WHITE = "\033[37m"
+    BRIGHT_WHITE = "\033[97m"
+
 
 BANNER = "Nebula DB v0.1 (WiredTiger Engine)\nType HELP for commands, EXIT or QUIT to leave.\n"
 
@@ -84,22 +100,44 @@ class NebulaShell:
     def __init__(self, db_name="nebula_shell_db"):
         self.db_name = db_name
         self.db = None
+        self.use_color = sys.stdout.isatty() and "NO_COLOR" not in os.environ
+
+    def _color(self, text, color):
+        if not self.use_color:
+            return text
+        return f"{color}{text}{Colors.RESET}"
+
+    def _print_result(self, result):
+        text = str(result)
+        if text.startswith("Error:") or text.startswith("Could not"):
+            color = Colors.RED
+        elif "successfully" in text or text.startswith("Collection '"):
+            color = Colors.GREEN
+        elif text.startswith("No matching") or text.startswith("Unknown command"):
+            color = Colors.YELLOW
+        elif text.startswith("(") and "matched" in text:
+            color = Colors.DIM
+        else:
+            color = Colors.BRIGHT_WHITE
+        print(self._color(text, color))
 
     def start(self):
-        print(BANNER)
+        print(self._color(BANNER, Colors.BRIGHT_WHITE))
         self.db = NeBulaDB(self.db_name)
-        print(f"[connected] db='{self.db_name}' — WiredTiger connection open, session persists across commands.")
+        print(self._color(f"[connected] db='{self.db_name}'", Colors.GREEN), end=" ")
+        print(self._color("WiredTiger connection open, session persists across commands.", Colors.DIM))
         try:
             self._loop()
         finally:
             if self.db:
                 self.db.close()
-                print("\n[closed] WiredTiger connection & session terminated cleanly.")
+                print("\n" + self._color("[closed]", Colors.GREEN), end=" ")
+                print(self._color("WiredTiger connection & session terminated cleanly.", Colors.DIM))
 
     def _loop(self):
         while True:
             try:
-                raw = input("nebula> ").strip()
+                raw = input(self._color("nebula> ", Colors.CYAN)).strip()
             except (EOFError, KeyboardInterrupt):
                 print()
                 break
@@ -112,13 +150,21 @@ class NebulaShell:
             try:
                 self._dispatch(raw)
             except Exception as e:
-                print(f"Error: {e}")
+                self._print_result(f"Error: {e}")
 
     def _dispatch(self, raw: str):
         upper = raw.upper()
 
         if upper == "HELP":
-            print(HELP_TEXT)
+            for line in HELP_TEXT.splitlines():
+                if not line:
+                    print()
+                elif line.startswith("  e.g.") or line.startswith("      "):
+                    print(self._color(line, Colors.DIM))
+                elif line.startswith("  "):
+                    print(self._color(line, Colors.BLUE))
+                else:
+                    print(self._color(line, Colors.BRIGHT_WHITE))
         elif upper == "STATS":
             self._cmd_stats()
         elif upper.startswith("CREATE COLLECTION"):
@@ -134,7 +180,7 @@ class NebulaShell:
         elif upper.startswith("READ"):
             self._cmd_read(raw)
         else:
-            print(f"Unknown command: '{raw}'. Type HELP for usage.")
+            self._print_result(f"Unknown command: '{raw}'. Type HELP for usage.")
 
     # ---- command handlers -------------------------------------------------
 
@@ -144,7 +190,7 @@ class NebulaShell:
             raise ValueError("Usage: CREATE COLLECTION <name> <schema_json>")
         _, _, name, schema_json = tokens
         schema = parse_json_arg(schema_json)
-        print(self.db.create_collection(name, schema))
+        self._print_result(self.db.create_collection(name, schema))
 
     def _cmd_insert(self, raw: str):
         tokens = raw.split(None, 4)  # INSERT INTO <collection> <doc_id> <data_json>
@@ -152,7 +198,7 @@ class NebulaShell:
             raise ValueError("Usage: INSERT INTO <collection> <doc_id> <data_json>")
         _, _, coll, doc_id, data_json = tokens
         data = parse_json_arg(data_json)
-        print(self.db.insert(coll, doc_id, data))
+        self._print_result(self.db.insert(coll, doc_id, data))
 
     def _cmd_update(self, raw: str):
         tokens = raw.split(None, 3)  # UPDATE <collection> <doc_id> <data_json>
@@ -160,21 +206,21 @@ class NebulaShell:
             raise ValueError("Usage: UPDATE <collection> <doc_id> <data_json>")
         _, coll, doc_id, data_json = tokens
         data = parse_json_arg(data_json)
-        print(self.db.update(coll, doc_id, data))
+        self._print_result(self.db.update(coll, doc_id, data))
 
     def _cmd_delete(self, raw: str):
         tokens = raw.split()  # DELETE <collection> <doc_id>
         if len(tokens) != 3:
             raise ValueError("Usage: DELETE <collection> <doc_id>")
         _, coll, doc_id = tokens
-        print(self.db.delete(coll, doc_id))
+        self._print_result(self.db.delete(coll, doc_id))
 
     def _cmd_read(self, raw: str):
         tokens = raw.split()  # READ <collection> <doc_id>
         if len(tokens) != 3:
             raise ValueError("Usage: READ <collection> <doc_id>")
         _, coll, doc_id = tokens
-        print(self.db.read(coll, doc_id))
+        self._print_result(self.db.read(coll, doc_id))
 
     def _cmd_find(self, raw: str):
         # FIND IN <collection> WHERE <field> <op> <value>
@@ -193,7 +239,7 @@ class NebulaShell:
             value = value_raw  # fall back to treating it as a raw string
 
         if coll not in self.db.collections:
-            print("Error: Collection not found.")
+            self._print_result("Error: Collection not found.")
             return
 
         start = time.perf_counter()
@@ -201,19 +247,19 @@ class NebulaShell:
         elapsed_ms = (time.perf_counter() - start) * 1000
 
         if not results:
-            print("No matching documents.")
+            self._print_result("No matching documents.")
         else:
             for doc in results:
-                print(doc)
-        print(f"({len(results)} matched, full scan in {elapsed_ms:.2f}ms)")
+                print(self._color(doc, Colors.CYAN))
+        print(self._color(f"({len(results)} matched, full scan in {elapsed_ms:.2f}ms)", Colors.DIM))
 
     def _cmd_stats(self):
         try:
             stats = self.db.cache.get_stats()
-            print("WiredTiger session stats cursor acquired.")
-            print(stats)
+            print(self._color("WiredTiger session stats cursor acquired.", Colors.BLUE))
+            print(self._color(stats, Colors.MAGENTA))
         except Exception as e:
-            print(f"Could not fetch stats: {e}")
+            self._print_result(f"Could not fetch stats: {e}")
 
 
 def main():

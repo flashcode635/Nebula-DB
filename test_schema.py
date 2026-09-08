@@ -36,7 +36,17 @@ def test_schema_enforcement():
     print(res)
     assert "committed" in res
 
-    # 3. Try inserting invalid data (wrong type)
+    # 3. Update one field using the collection field type
+    res = db.update('students', 's1', {'rollno': 124})
+    print(f"Partial update result: {res}")
+    assert "mutated successfully" in res
+
+    invalid_partial_update = {'rollno': '124'}
+    res = db.update('students', 's1', invalid_partial_update)
+    print(f"Invalid partial update result: {res}")
+    assert "Error" in res and "must be integer" in res
+
+    # 4. Try inserting invalid data (wrong type)
     invalid_student = {
         'name': 'Jane Doe',
         'rollno': '123',  # Should be integer
@@ -48,7 +58,7 @@ def test_schema_enforcement():
     print(f"Invalid insert (wrong type) result: {res}")
     assert "Error" in res and "must be integer" in res
 
-    # 4. Try inserting invalid data (missing field)
+    # 5. Try inserting invalid data (missing field)
     missing_field_student = {
         'name': 'Jane Doe',
         'rollno': 456,
@@ -59,7 +69,7 @@ def test_schema_enforcement():
     print(f"Invalid insert (missing field) result: {res}")
     assert "Error" in res and "Missing required field" in res
 
-    # 5. Try inserting invalid data (extra field)
+    # 6. Try inserting invalid data (extra field)
     extra_field_student = {
         'name': 'Jane Doe',
         'rollno': 456,
@@ -72,21 +82,21 @@ def test_schema_enforcement():
     print(f"Invalid insert (extra field) result: {res}")
     assert "Error" in res and "Unknown field" in res
 
-    # 6. Test update with valid data
+    # 7. Test update with valid data
     update_data = student1.copy()
     update_data['marks'] = 95.0
     res = db.update('students', 's1', update_data)
     print(f"Valid update result: {res}")
     assert "mutated successfully" in res
 
-    # 7. Test update with invalid data
+    # 8. Test update with invalid data
     invalid_update = student1.copy()
     invalid_update['pass'] = 'not-a-bool'
     res = db.update('students', 's1', invalid_update)
     print(f"Invalid update result: {res}")
     assert "Error" in res and "must be boolean" in res
 
-    # 8. Test persistence
+    # 9. Test persistence
     db.close() # Actually NeBulaDB doesn't have close, but it flushes on every write
     
     db2 = NeBulaDB(db_name)

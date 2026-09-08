@@ -156,48 +156,6 @@ or
 ```bash
 QUIT
 ```
-
-### Programmatic Usage
-
-Use NebulaDB directly in Python code:
-
-```python
-from main import NeBulaDB, FieldType
-
-# Initialize database
-db = NeBulaDB("my_app_db")
-
-# Create a collection with schema
-schema = {
-    'name': FieldType.STRING,
-    'age': FieldType.INTEGER,
-    'email': FieldType.STRING,
-    'active': FieldType.BOOLEAN
-}
-print(db.create_collection('users', schema))
-
-# Insert a document
-user_data = {
-    'name': 'John Doe',
-    'age': 30,
-    'email': 'john@example.com',
-    'active': True
-}
-print(db.insert('users', 'user_1', user_data))
-
-# Read a document
-print(db.read('users', 'user_1'))
-
-# Update a document
-print(db.update('users', 'user_1', {'age': 31}))
-
-# Delete a document
-print(db.delete('users', 'user_1'))
-
-# Close connection
-db.close()
-```
-
 ## Supported Field Types
 
 The `FieldType` class defines all supported data types:
